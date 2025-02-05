@@ -3,11 +3,8 @@ import json
 
 # Arena API Configuration
 ARENA_BASE_URL = "https://api.arenasolutions.com/v1"
-ARENA_TOKEN = "YOUR_ARENA_ACCESS_TOKEN"
-ARENA_HEADERS = {
-    "Authorization": f"Bearer {ARENA_TOKEN}",
-    "Content-Type": "application/json"
-}
+ARENA_USERNAME = "your-username"
+ARENA_PASSWORD = "your-password"
 
 # Jira API Configuration
 JIRA_BASE_URL = "https://yourcompany.atlassian.net/rest/api/3"
@@ -18,25 +15,40 @@ JIRA_HEADERS = {
     "Content-Type": "application/json"
 }
 
-# Jira Project and Issue Type
 JIRA_PROJECT_KEY = "PROJECT_KEY"
 JIRA_ISSUE_TYPE = "Task"  # Change as needed
 
 
-def get_arena_events():
-    """Fetch new events from Arena"""
-    url = f"{ARENA_BASE_URL}/events"
-    response = requests.get(url, headers=ARENA_HEADERS)
+def get_arena_session():
+    """Authenticate with Arena and return a session object"""
+    url = f"{ARENA_BASE_URL}/login"
+    payload = {"username": ARENA_USERNAME, "password": ARENA_PASSWORD}
+
+    session = requests.Session()  # Persist authentication using session
+    response = session.post(url, json=payload)
+
     if response.status_code == 200:
-        events = response.json().get("results", [])
-        return events
+        print("✅ Arena session created successfully.")
+        return session  # Return the authenticated session object
     else:
-        print("Error fetching events:", response.status_code, response.text)
+        print("❌ Error logging in:", response.status_code, response.text)
+        return None
+
+
+def get_arena_events(session):
+    """Fetch new events from Arena API using session authentication"""
+    url = f"{ARENA_BASE_URL}/events"
+    response = session.get(url)
+
+    if response.status_code == 200:
+        return response.json().get("results", [])
+    else:
+        print("❌ Error fetching events:", response.status_code, response.text)
         return None
 
 
 def create_jira_ticket(event):
-    """Create a Jira issue based on the Arena event"""
+    """Create a Jira issue based on an Arena event"""
     url = f"{JIRA_BASE_URL}/issue"
     payload = {
         "fields": {
@@ -50,36 +62,45 @@ def create_jira_ticket(event):
     response = requests.post(url, headers=JIRA_HEADERS, json=payload)
     if response.status_code == 201:
         jira_issue = response.json()
-        print(f"Jira issue created: {jira_issue['key']}")
+        print(f"✅ Jira issue created: {jira_issue['key']}")
         return jira_issue["key"]
     else:
-        print("Error creating Jira ticket:", response.status_code, response.text)
+        print("❌ Error creating Jira ticket:", response.status_code, response.text)
         return None
 
 
-def reconcile_arena_event(event_id):
-    """Mark an Arena event as processed"""
+def reconcile_arena_event(session, event_id):
+    """Mark an Arena event as reconciled"""
     url = f"{ARENA_BASE_URL}/events/{event_id}/reconcile"
-    response = requests.post(url, headers=ARENA_HEADERS)
+    response = session.post(url)
+
     if response.status_code == 200:
-        print(f"Event {event_id} reconciled successfully.")
+        print(f"✅ Event {event_id} reconciled successfully.")
     else:
-        print(f"Error reconciling event {event_id}:", response.status_code, response.text)
+        print(f"❌ Error reconciling event {event_id}:", response.status_code, response.text)
 
 
 if __name__ == "__main__":
-    # Step 1: Get new events from Arena
-    events = get_arena_events()
+    # Step 1: Authenticate with Arena
+    session = get_arena_session()
+    if not session:
+        exit("❌ Failed to authenticate with Arena. Exiting...")
 
-    if events:
+    # Step 2: Fetch Arena events
+    events = get_arena_events(session)
+    if not events:
+        print("🔍 No new events found.")
+    else:
         for event in events:
             event_id = event["id"]
 
-            # Step 2: Create a Jira ticket for the event
+            # Step 3: Create a Jira ticket for each event
             jira_issue_key = create_jira_ticket(event)
 
+            # Step 4: Reconcile the event in Arena if Jira issue was created
             if jira_issue_key:
-                # Step 3: Reconcile the event in Arena
-                reconcile_arena_event(event_id)
-    else:
-        print("No new events found.")
+                reconcile_arena_event(session, event_id)
+
+    # Step 5: Logout from Arena
+    session.get(f"{ARENA_BASE_URL}/logout")
+    print("🚪 Logged out of Arena.")
