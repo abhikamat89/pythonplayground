@@ -35,50 +35,70 @@ def get_arena_session():
         return None
 
 
-def get_arena_events(session):
-    """Fetch new events from Arena API using session authentication"""
-    url = f"{ARENA_BASE_URL}/events"
+def search_integrations(session, search_params=None):
+    """Search for integrations based on provided parameters."""
+    url = f"{ARENA_BASE_URL}/integrations/search"
+    response = session.get(url, params=search_params)
+
+    if response.status_code == 200:
+        integrations = response.json().get("results", [])
+        print(f"Found {len(integrations)} integration(s).")
+        return integrations
+    else:
+        print("❌ Error searching integrations:", response.status_code, response.text)
+        return None
+
+def get_integration_details(session, integration_id):
+    """Retrieve details of a specific integration."""
+    url = f"{ARENA_BASE_URL}/integrations/{integration_id}"
     response = session.get(url)
 
     if response.status_code == 200:
-        return response.json().get("results", [])
+        integration_details = response.json()
+        print(f"Integration Details: {json.dumps(integration_details, indent=2)}")
+        return integration_details
     else:
-        print("❌ Error fetching events:", response.status_code, response.text)
+        print("❌ Error retrieving integration details:", response.status_code, response.text)
         return None
 
-
-def create_jira_ticket(event):
-    """Create a Jira issue based on an Arena event"""
-    url = f"{JIRA_BASE_URL}/issue"
-    payload = {
-        "fields": {
-            "project": {"key": JIRA_PROJECT_KEY},
-            "summary": f"Arena Event: {event['type']} - {event['id']}",
-            "description": f"New event in Arena:\n\n{json.dumps(event, indent=2)}",
-            "issuetype": {"name": JIRA_ISSUE_TYPE}
-        }
-    }
-
-    response = requests.post(url, headers=JIRA_HEADERS, json=payload)
-    if response.status_code == 201:
-        jira_issue = response.json()
-        print(f"✅ Jira issue created: {jira_issue['key']}")
-        return jira_issue["key"]
-    else:
-        print("❌ Error creating Jira ticket:", response.status_code, response.text)
-        return None
-
-
-def reconcile_arena_event(session, event_id):
-    """Mark an Arena event as reconciled"""
-    url = f"{ARENA_BASE_URL}/events/{event_id}/reconcile"
-    response = session.post(url)
+def get_event(session, event_id):
+    """Fetch details of a specific event."""
+    url = f"{ARENA_BASE_URL}/events/{event_id}"
+    response = session.get(url)
 
     if response.status_code == 200:
-        print(f"✅ Event {event_id} reconciled successfully.")
+        event_details = response.json()
+        print(f"Event Details: {json.dumps(event_details, indent=2)}")
+        return event_details
     else:
-        print(f"❌ Error reconciling event {event_id}:", response.status_code, response.text)
+        print("❌ Error retrieving event details:", response.status_code, response.text)
+        return None
 
+def get_event_item_guids(session, event_id):
+    """Obtain GUIDs of items associated with a specific event."""
+    url = f"{ARENA_BASE_URL}/events/{event_id}/items/guids"
+    response = session.get(url)
+
+    if response.status_code == 200:
+        item_guids = response.json().get("guids", [])
+        print(f"Found {len(item_guids)} item GUID(s) for event {event_id}.")
+        return item_guids
+    else:
+        print("❌ Error retrieving event item GUIDs:", response.status_code, response.text)
+        return None
+
+def get_event_item_details(session, event_id, item_guid):
+    """Retrieve details of a specific item associated with an event."""
+    url = f"{ARENA_BASE_URL}/events/{event_id}/items/{item_guid}"
+    response = session.get(url)
+
+    if response.status_code == 200:
+        item_details = response.json()
+        print(f"Item Details: {json.dumps(item_details, indent=2)}")
+        return item_details
+    else:
+        print("❌ Error retrieving event item details:", response.status_code, response.text)
+        return None
 
 if __name__ == "__main__":
     # Step 1: Authenticate with Arena
@@ -86,21 +106,38 @@ if __name__ == "__main__":
     if not session:
         exit("❌ Failed to authenticate with Arena. Exiting...")
 
-    # Step 2: Fetch Arena events
-    events = get_arena_events(session)
-    if not events:
-        print("🔍 No new events found.")
-    else:
-        for event in events:
-            event_id = event["id"]
+    # Step 2: Search for Integrations
+    search_params = {"name": "Your Integration Name"}  # Adjust search parameters as needed
+    integrations = search_integrations(session, search_params)
 
-            # Step 3: Create a Jira ticket for each event
-            jira_issue_key = create_jira_ticket(event)
+    if integrations:
+        # Assuming we're interested in the first integration found
+        integration_id = integrations[0]["id"]
 
-            # Step 4: Reconcile the event in Arena if Jira issue was created
-            if jira_issue_key:
-                reconcile_arena_event(session, event_id)
+        # Step 3: Get Integration Details
+        get_integration_details(session, integration_id)
 
-    # Step 5: Logout from Arena
+        # Step 4: Fetch Events for the Integration
+        # Note: Adjust event fetching logic as per your requirements
+        events = get_arena_events(session)  # Implement this function as needed
+
+        if events:
+            # Assuming we're interested in the first event
+            event_id = events[0]["id"]
+
+            # Step 5: Get Event Details
+            get_event(session, event_id)
+
+            # Step 6: Get Event Item GUIDs
+            item_guids = get_event_item_guids(session, event_id)
+
+            if item_guids:
+                # Assuming we're interested in the first item GUID
+                item_guid = item_guids[0]
+
+                # Step 7: Get Event Item Details
+                get_event_item_details(session, event_id, item_guid)
+
+    # Step 8: Logout from Arena
     session.get(f"{ARENA_BASE_URL}/logout")
     print("🚪 Logged out of Arena.")
